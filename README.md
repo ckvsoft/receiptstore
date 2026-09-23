@@ -1,4 +1,10 @@
-# receiptstore — QRK „Digitaler Beleg / Ablage-Link" Beta-Endpoint
+# receiptstore — QRK „Digitaler Beleg / Ablage-Link" (Beta, selbst hostbar)
+
+Eigenständiges Cevian-Modul (kein DB-Zwang, ein Token, TTL-Cleanup).
+Installation: Ordner nach `<cevian>/modules/receiptstore` klonen,
+`module.json.example` nach `module.json` kopieren (token, storage_dir,
+base_url setzen). QRK-Settings siehe unten. Beta-Status: am Beta-Server
+betrieben, Feedback über Issues.
 
 **BETA-Testwerkzeug, kein Produkt:** QRK hostet nichts; das Modul simuliert
 die Betreiber-Ablage für den Beta-Durchlauf des Autors. Keine DB, kein
