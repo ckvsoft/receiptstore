@@ -1,60 +1,61 @@
-# receiptstore — QRK „Digitaler Beleg / Ablage-Link" (Beta, selbst hostbar)
+# receiptstore — QRK digital receipt / retrieval-link endpoint (beta)
 
-Eigenständiges Cevian-Modul (kein DB-Zwang, ein Token, TTL-Cleanup).
-Installation: Ordner nach `<cevian>/modules/receiptstore` klonen,
-`module.json.example` nach `module.json` kopieren (token, storage_dir,
-base_url setzen). QRK-Settings siehe unten. Beta-Status: am Beta-Server
-betrieben, Feedback über Issues.
+Standalone Cevian module for the QRK "Digitaler Beleg / Ablage-Link" flow:
+receipt PDFs are uploaded by the till via WebDAV, generic POST or S3 and
+retrieved by the customer through a plain URL.
 
-**BETA-Testwerkzeug, kein Produkt:** QRK hostet nichts; das Modul simuliert
-die Betreiber-Ablage für den Beta-Durchlauf des Autors. Keine DB, kein
-RBAC — ein Token aus `module.json` (nur am Server, Repo:
-`module.json.example`), Dateien unter `var/receiptstore/` mit
-TTL-Cleanup (mtime) und hartem File-Cap.
+- no database, one token (module.json), TTL cleanup with a hard file cap
+- files go to the cevian-site `var/` (NOT the module tree); module.json
+  `storage_dir` sets an absolute override for self-hosting
+- the customer retrieval link carries no key on purpose: the random
+  file name is the only secret a customer browser holds
 
-## Endpunkte (Cevian-path)
+## Installation
 
-| Kanal            | Methode | Route                                                |
-|------------------|---------|------------------------------------------------------|
-| WebDAV (PUT)     | PUT     | `/cevian/receiptstore/dav/index/<KEY>/<name>.pdf`    |
-| GenericPOST      | POST    | `/cevian/receiptstore/post/index/<KEY>`              |
-| S3 (SigV4)       | PUT     | `/cevian/receiptstore/s3/index/<KEY>/<name>.pdf`     |
-| Abruf (Kunde)    | GET     | `/cevian/receiptstore/r/index/<name>.pdf`            |
+1. Clone this folder into `<cevian>/modules/receiptstore`.
+2. Copy `module.json.example` to `module.json` and set:
+   - `token` — the upload key,
+   - `base_url` — the public base of your cevian site,
+   - `storage_dir` — optional absolute storage path (default `<cevian>/var`),
+   - limits (`ttl_hours`, `max_files`, `max_bytes`) as needed.
+3. Configure the QRK "Beleg-Ablage" channel settings as documented below.
 
-- `<KEY>` = `token` aus module.json (auch `?key=` — **Basic/Bearer-Header
-  erreichen FPM auf diesem Host nicht zuverlässig**, dyndns-Lektion).
-- Das Retrieval braucht bewusst KEINEN Token: der zufällige Dateiname ist
-  das einzige Geheimnis, das der Kunden-Browser hält.
-- Dateien: `var/receiptstore/*.pdf` (cevian-Root, NICHT im Modulbaum;
-  Modulbaum ist kein storage), override via module.json `storage_dir`
-  (absolute Pfad; Self-Hosting-Szenario "Plugin-Download"), TTL
-  `ttl_hours` (Default 24 h), File-Cap `max_files` (Default 500),
-  Größen-Cap `max_bytes` (2 MB), PDF-Magic-Check (`%PDF`), Name-Regex
-  `[A-Za-z0-9._-]+\.pdf`.
-- Konfig im `base_url`-Key (Default `https://<host>/cevian`).
+## Endpoints (cevian path)
 
-## QRK-Settings (Beta, Endkunden-Reihenfolge)
+| Channel         | Method | Route                                             |
+|-----------------|--------|---------------------------------------------------|
+| WebDAV (PUT)    | PUT    | `/cevian/receiptstore/dav/index/<KEY>/<name>.pdf` |
+| GenericPOST     | POST   | `/cevian/receiptstore/post/index/<KEY>`           |
+| S3 (SigV4)      | PUT    | `/cevian/receiptstore/s3/index/<KEY>/<name>.pdf`  |
+| Retrieval (GET) | GET    | `/cevian/receiptstore/r/index/<name>.pdf`         |
 
-- **WebDAV:** `Endpunkt = https://service.ckvsoft.at/cevian/receiptstore/dav/index/<KEY>`
-  (leer lassen = keine Zugangsdaten), `Abruf-Link Basis =
-  https://service.ckvsoft.at/cevian/receiptstore/r/index/`
-- **POST:** `Endpunkt = https://service.ckvsoft.at/cevian/receiptstore/post/index/<KEY>`,
-  Link-Feld `url`, Bearer-Token egal (FPM).
-- **S3:** `Endpunkt = https://service.ckvsoft.at/cevian` (HOST + Basis-
-  pfad!), `Bucket = receiptstore`, `Unterordner = s3/index/<KEY>`,
-  `Access Key ID`/`Secret Access Key` = module.json
-  (`s3AccessKey`/`s3Secret`). QRK
-  signiert den vollen Request-Pfad (Basis-Pfad + Bucket + Key) und das
-  Modul vergleicht ihn 1:1 mit dem REQUEST_URI (`s3_prefix` bleibt leer,
-  außer ein Wrapper bleibt ungewollt im URI). Nimmt die Schicht dazwischen den Authorization-Header (oder die
-  x-amz-Header) ganz weg, fällt die Prüfung auf URL-Token (Payload-Hash
-  sofern möglich) zurück — das Modul-Logfile zeigt, welcher Fall griff
-  (sigv4 / payload-hash / no-amz-headers).
+- `<KEY>` = the module.json `token` (also via `?key=`; Basic/Bearer headers
+  may not reach PHP-FPM reliably through some proxies).
+- Files: `var/receiptstore/*.pdf`, TTL `ttl_hours` (default 24 h), file cap
+  `max_files` (default 500), size cap `max_bytes` (2 MB), PDF magic check
+  (`%PDF`), file name regex `[A-Za-z0-9._-]+\.pdf`.
 
-## S3-Signatur-Hinweis
-Das Beta-Modul prüft die SigV4-Signatur NUR, wenn der Host die
-`/<bucket>/<key>`-Route am Root kennt (module.json `s3_prefix` setzt den
-Wrapper-Prefix, wenn die cevian-bootstrap hinter einem Prefix mountet).
-Ohne diese Route bleibt der Fallback (Payload-Hash + URL-Token); der
-normkonforme SigV4-Fall selbst ist im UnitMock (ReceiptTransport) und an
-einem echten Provider (Hetzner/MinIO) testbar.
+## QRK channel settings
+
+- **WebDAV:** endpoint `https://<host>/cevian/receiptstore/dav/index/<KEY>`,
+  retrieval base `https://<host>/cevian/receiptstore/r/index/`.
+- **POST:** endpoint `https://<host>/cevian/receiptstore/post/index/<KEY>`,
+  link field `url`.
+- **S3:** endpoint = host + base path (e. g. `https://<host>/cevian`),
+  bucket `receiptstore`, folder `s3/index/<KEY>`, access/secret from
+  module.json (`s3AccessKey`/`s3Secret`). QRK signs the full request path
+  and the module compares it 1:1 against the REQUEST_URI (`s3_prefix`
+  stays empty unless a wrapper prefix is unavoidable). If an intermediate
+  layer strips the Authorization/x-amz headers, the check falls back to
+  the URL token (payload hash where possible).
+
+## S3 signature note
+
+SigV4 is checked fully only when the host serves `/<bucket>/<key>` at the
+root (module.json `s3_prefix` covers a wrapper prefix). Otherwise the
+URL-token/payload-hash fallback applies; the module log states which case
+was used (sigv4 / payload-hash / no-amz-headers).
+
+## Deutsche Version
+
+Siehe [README.de.md](README.de.md).
