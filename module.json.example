@@ -1,0 +1,15 @@
+{
+  "name": "receiptstore",
+  "version": "0.1.0",
+  "description": "QRK digitaler Beleg 'Ablage-Link' BETA storage endpoint - no DB, one token, files under var/receiptstore with TTL cleanup. Beta test tool only, NOT a hosted product.",
+  "core": false,
+  "base_url": "https://service.ckvsoft.at/cevian",
+  "token": "RECEIPTSTORE_TOKEN",
+  "ttl_hours": 24,
+  "max_bytes": 2000000,
+  "max_files": 500,
+  "s3_prefix": "",
+  "s3AccessKey": "QRKBETA",
+  "s3Secret": "QRKBETA_SECRET",
+  "storage_dir": ""
+}
