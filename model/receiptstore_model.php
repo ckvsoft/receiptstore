@@ -49,7 +49,7 @@ class Receiptstore_Model extends \ckvsoft\mvc\Model
         $token = $this->requestKey($pathToken);
         $expected = trim((string) Config::module('token', 'receiptstore'));
         if ($expected === '' || $token === '' || !hash_equals($expected, $token)) {
-            error_log('receiptstore: badauth from ' . ($_SERVER['REMOTE_ADDR'] ?? '?'));
+            error_log('receiptstore: badauth from ' . (new \ckvsoft\Request())->getServerVar('REMOTE_ADDR', '?'));
             http_response_code(401);
             header('Content-Type: application/json');
             echo json_encode(['error' => 'invalid key']);
@@ -118,7 +118,10 @@ class Receiptstore_Model extends \ckvsoft\mvc\Model
     public function linkFor($name): string
     {
         $base = trim((string) Config::module('base_url', 'receiptstore'));
-        if ($base === '') $base = 'https://' . ($_SERVER['HTTP_HOST'] ?? 'localhost') . '/cevian';
+        if ($base === '') {
+            $host = (new \ckvsoft\Request())->getServerVar('HTTP_HOST', 'localhost');
+            $base = 'https://' . $host . '/cevian';
+        }
         return rtrim($base, '/') . '/receiptstore/r/index/' . rawurlencode((string) $name);
     }
 }

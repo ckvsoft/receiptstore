@@ -7,24 +7,24 @@
  *   GET /cevian/receiptstore/r/index/<name>.pdf
  *
  * NO key on purpose: the random file name IS the only secret the customer
- * holds (path-style beta equivalent of the operator's real storage). The
- * model still validates the name format, so nothing outside the beta
- * storage directory can be touched.
+ * holds. The model still validates the name format, so nothing outside
+ * the storage directory can be touched.
  */
-class R extends \ckvsoft\mvc\BaseController
+class R extends ckvsoft\mvc\BaseController
 {
     public function index($file = '')
     {
-        $model = $this->loadModel('receiptstore');
+        $this->model = $this->loadModel('receiptstore');
+        $request = new \ckvsoft\Request();
 
-        if (($_SERVER['REQUEST_METHOD'] ?? '') !== 'GET') {
+        if ($request->getServerVar('REQUEST_METHOD') !== 'GET') {
             http_response_code(405);
             header('Content-Type: text/plain');
             echo 'GET only';
             exit;
         }
 
-        $content = $model->read($file);
+        $content = $this->model->read($file);
         if ($content === null) {
             http_response_code(404);
             header('Content-Type: text/plain');
@@ -32,7 +32,7 @@ class R extends \ckvsoft\mvc\BaseController
             exit;
         }
 
-        $model->maintenance(); // no-op safe on the retrieval path too
+        $this->model->maintenance(); // no-op safe on the retrieval path too
         header('Content-Type: application/pdf');
         header('Content-Disposition: inline; filename="' . basename((string) $file) . '"');
         header('Cache-Control: private, max-age=3600');

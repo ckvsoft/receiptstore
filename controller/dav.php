@@ -1,7 +1,7 @@
 <?php
 
 /**
- * DAV endpoint (WebDAV-PUT emulation for the QRK receiptstore beta tool).
+ * DAV endpoint (WebDAV-PUT emulation for the QRK receiptstore).
  *
  * Cevian-path:
  *   PUT /cevian/receiptstore/dav/index/<KEY>/<name>.pdf
@@ -11,35 +11,33 @@
  * The QRK kassa only checks the HTTP status for the WebDAV channel; the
  * "url" member is informative for curl testing by hand.
  */
-class Dav extends \ckvsoft\mvc\BaseController
+class Dav extends ckvsoft\mvc\BaseController
 {
     public function index($key = '', $file = '')
     {
-        $model = $this->loadModel('receiptstore');
+        $this->model = $this->loadModel('receiptstore');
+        $request = new \ckvsoft\Request();
 
-        if (($_SERVER['REQUEST_METHOD'] ?? '') !== 'PUT') {
+        if ($request->getServerVar('REQUEST_METHOD') !== 'PUT') {
             http_response_code(405);
-            header('Content-Type: application/json');
-            echo json_encode(['error' => 'method not allowed (PUT only)']);
+            \ckvsoft\Output::json(['error' => 'method not allowed (PUT only)']);
             exit;
         }
 
-        $model->requireToken($key);
+        $this->model->requireToken($key);
         $body = (string) file_get_contents('php://input');
-        $stored = $model->store($file, $body);
+        $stored = $this->model->store($file, $body);
         if ($stored === null) {
             error_log('receiptstore/dav: rejected upload '
-                . ($_SERVER['REMOTE_ADDR'] ?? '?') . ' file=' . var_export($file, true));
+                . (new \ckvsoft\Request())->getServerVar('REMOTE_ADDR', '?') . ' file=' . var_export($file, true));
             http_response_code(400);
-            header('Content-Type: application/json');
-            echo json_encode(['error' => 'invalid request (name/size/PDF magic)']);
+            \ckvsoft\Output::json(['error' => 'invalid request (name/size/PDF magic)']);
             exit;
         }
 
-        $model->maintenance();
+        $this->model->maintenance();
         http_response_code(200);
-        header('Content-Type: application/json');
-        echo json_encode(['ok' => 1, 'url' => $model->linkFor($stored)]);
+        \ckvsoft\Output::json(['ok' => 1, 'url' => $this->model->linkFor($stored)]);
         exit;
     }
 }

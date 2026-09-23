@@ -1,7 +1,5 @@
 <?php
 
-use ckvsoft\mvc\Config;
-
 /**
  * S3 endpoint - SigV4 verification of QRK's ReceiptTransport::uploadS3.
  *
@@ -15,14 +13,13 @@ use ckvsoft\mvc\Config;
  *
  * The canonical path IS the raw HTTP path (QRK signs exactly what it
  * sends). On a vhost that roots the service (or with module.json
- * "s3_prefix" naming an env wrapper to strip), the canonical rebuild is
+ * "s3_prefix" naming a wrapper prefix to strip), the canonical rebuild is
  * byte-identical, so the signature check runs the full AWS chain. When
- * the FPM strips Authorization (dyndns lesson: Basic/Bearer are lost at
- * this layer) the service falls back to token-in-URL + intact payload
- * hash - the transfer is still proven, only the norm signature stays
- * un-proven there; see README for the two beta routes.
+ * the FPM loses Authorization, the service falls back to token-in-URL +
+ * intact payload hash - the transfer is still proven, only the norm
+ * signature stays un-proven there (see README).
  */
-class S3 extends \ckvsoft\mvc\BaseController
+class S3 extends ckvsoft\mvc\BaseController
 {
     private function hmac($key, $data)
     {
@@ -40,12 +37,13 @@ class S3 extends \ckvsoft\mvc\BaseController
 
     public function index($bucket = '', $key = '')
     {
-        $model = $this->loadModel('receiptstore');
+        $this->model = $this->loadModel('receiptstore');
+        $request = new \ckvsoft\Request();
 
         // the retrieval link of the S3 channel points back to THIS route
         // (GET) - serving the object makes the beta bucket self-contained
-        if (($_SERVER['REQUEST_METHOD'] ?? '') === 'GET') {
-            $content = $model->read(basename((string) $key));
+        if ($request->getServerVar('REQUEST_METHOD') === 'GET') {
+            $content = $this->model->read(basename((string) $key));
             if ($content === null) {
                 http_response_code(404);
                 header('Content-Type: text/plain');
@@ -58,29 +56,28 @@ class S3 extends \ckvsoft\mvc\BaseController
             exit;
         }
 
-        if (($_SERVER['REQUEST_METHOD'] ?? '') !== 'PUT') {
+        if ($request->getServerVar('REQUEST_METHOD') !== 'PUT') {
             http_response_code(405);
             header('Content-Type: text/plain');
             echo 'PUT only';
             exit;
         }
 
-        $model = $this->loadModel('receiptstore');
-
-        $uri = (string) ($_SERVER['REQUEST_URI'] ?? '');
+        $uri = (string) $request->getRequestUri();
         $queryPos = strpos($uri, '?');
         if ($queryPos !== false) $uri = substr($uri, 0, $queryPos);
-        $prefix = (string) Config::module('s3_prefix', 'receiptstore');
+        $prefix = (string) \ckvsoft\mvc\Config::module('s3_prefix', 'receiptstore');
         if ($prefix !== '' && strpos($uri, $prefix) === 0) $uri = substr($uri, strlen($prefix));
         $canonical = '/' . ltrim((string) $uri, '/');
 
         $body = (string) file_get_contents('php://input');
         $payloadHash = hash('sha256', $body);
-        $amzSha = (string) ($_SERVER['HTTP_X_AMZ_CONTENT_SHA256'] ?? '');
-        $amzDate = (string) ($_SERVER['HTTP_X_AMZ_DATE'] ?? '');
-        $authorization = (string) ($_SERVER['HTTP_AUTHORIZATION'] ?? '');
-        $expectedAccess = trim((string) Config::module('s3AccessKey', 'receiptstore'));
-        $secret = (string) (Config::module('s3Secret', 'receiptstore') ?: Config::module('token', 'receiptstore'));
+        $amzSha = (string) $request->getServerVar('HTTP_X_AMZ_CONTENT_SHA256', '');
+        $amzDate = (string) $request->getServerVar('HTTP_X_AMZ_DATE', '');
+        $authorization = (string) $request->getServerVar('HTTP_AUTHORIZATION', '');
+        $expectedAccess = trim((string) \ckvsoft\mvc\Config::module('s3AccessKey', 'receiptstore'));
+        $secret = (string) (\ckvsoft\mvc\Config::module('s3Secret', 'receiptstore')
+            ?: \ckvsoft\mvc\Config::module('token', 'receiptstore'));
 
         $verified = 'bad-request';
         if ($amzSha === '') {
@@ -100,7 +97,7 @@ class S3 extends \ckvsoft\mvc\BaseController
                     // canonical request exactly per QRK (one request shape
                     // only: the three signed headers above)
                     $canonicalRequest = "PUT\n" . $canonical . "\n\n"
-                        . "host:" . (string) ($_SERVER['HTTP_HOST'] ?? '') . "\n"
+                        . "host:" . (string) $request->getServerVar('HTTP_HOST', '') . "\n"
                         . "x-amz-content-sha256:" . $amzSha . "\n"
                         . "x-amz-date:" . $amzDate . "\n"
                         . "\nhost;x-amz-content-sha256;x-amz-date\n" . $payloadHash;
@@ -123,28 +120,26 @@ class S3 extends \ckvsoft\mvc\BaseController
         // the token in the canonical key + intact payload hash
         $token = $this->tokenFromCanonical($canonical);
         $tokenOk = $token !== '' && hash_equals(
-            trim((string) Config::module('token', 'receiptstore')), $model->requestKey($token));
+            trim((string) \ckvsoft\mvc\Config::module('token', 'receiptstore')), $this->model->requestKey($token));
         $name = basename((string) $key);
 
         if ($verified === 'sigv4' || ($verified === 'no-amz-headers' && $tokenOk)
             || ($verified === 'payload-hash' && $tokenOk)) {
-            if ($model->store($name, $body) === null) {
-                error_log('receiptstore/s3: rejected upload ' . ($_SERVER['REMOTE_ADDR'] ?? '?'));
+            if ($this->model->store($name, $body) === null) {
+                error_log('receiptstore/s3: rejected upload ' . (new \ckvsoft\Request())->getServerVar('REMOTE_ADDR', '?'));
                 http_response_code(400);
-                header('Content-Type: application/json');
-                echo json_encode(['error' => 'invalid object']);
+                \ckvsoft\Output::json(['error' => 'invalid object']);
                 exit;
             }
-            $model->maintenance();
+            $this->model->maintenance();
             http_response_code(200);
             echo '';
             exit;
         }
 
-        error_log('receiptstore/s3: rejected (' . $verified . ') from ' . ($_SERVER['REMOTE_ADDR'] ?? '?'));
+        error_log('receiptstore/s3: rejected (' . $verified . ') from ' . (new \ckvsoft\Request())->getServerVar('REMOTE_ADDR', '?'));
         http_response_code($verified === 'bad-signature' ? 403 : 400);
-        header('Content-Type: application/json');
-        echo json_encode(['error' => $verified]);
+        \ckvsoft\Output::json(['error' => $verified]);
         exit;
     }
 }
